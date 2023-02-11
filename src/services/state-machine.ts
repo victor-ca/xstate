@@ -1,47 +1,16 @@
 import { AnyEventObject, assign, createMachine } from "xstate";
 import { sendParent } from "xstate/lib/actions";
-
-type Context = {
-  init: { sendingWalletId: string; receivingWalletId: string };
-  locks: string[];
-  result?: ApprovalResult;
-  sender?: Wallet;
-  receiver?: Wallet;
-};
-type WalletPair = Required<Pick<Context, "sender" | "receiver">>;
-type LockMachineContext = {
-  walletIds: string[];
-  internalWalletLockIds: string[];
-};
-
-type Wallet = {
-  isInternal: boolean;
-  isBlocked: boolean;
-  address: string;
-  riskScore: number;
-};
-
-type WalletUpdate = {
-  address: string;
-  newScore: number;
-  doBlock: boolean;
-};
-type ApprovalState = "unknown" | "approved" | "rejected";
-
-type ApprovalResult = {
-  updates: WalletUpdate[];
-  approval: "unknown" | "approved" | "rejected";
-};
-type ApprovalComputing = {
-  postApprovalScores: {
-    doBlockSender: boolean;
-    doBlockReceiver: boolean;
-    senderScore: number;
-    receiverScore: number;
-  };
-};
-type ApprovalMachineContext = { approval: ApprovalState } & WalletPair &
-  ApprovalComputing;
+import {
+  ApprovalMachineContext,
+  WalletUpdate,
+  Wallet,
+  Context,
+  LockMachineContext,
+  ApprovalResult,
+  WalletPair,
+  ApprovalState,
+} from "../model/model";
+import { WalletLockService, WalletRiskService } from "../model/services";
 
 const buildPostApprovalUpdates = (
   ctx: ApprovalMachineContext
@@ -74,15 +43,24 @@ const buildPostApprovalUpdates = (
   ].filter(Boolean) as WalletUpdate[];
 };
 
-export const stateMachineV3 =
-  /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC0ADqkbnLKeuZUQG7oA2pAtngBYGZgAdGiywChEgElM4gumSQAxG2oBrAIIBHAK4FUkANoAGALqJQ5ImImZzIAB6IAHACZBARgCsAZiN+jTgDsACxO3gBsAJwANCAAnojeIYIR4Z5GwZEuwZ7u7oEAvgWxIth4NhRUNLB0DEysHNy4fAKCAGZgyM38UADq7GydACLy6IoQJEL8zESqQqU4+MRkTNW1jFQNXLz8Qh1dLX0Dw6MI09Tyy8Ym13aW1st2jgjBRp6CweGBWcGB30HeWIJBAuFzvbwucKfSKRYJeJyeT5FEoYMpLEiVai0egbFjsbbdVr7QlHNiDZAjZBjMCoKioQTkNjyNpEVCcYSoxYVVbYuqbfFNFp7Tok-pkk5Us6YGa4S4ka63JAge6yEhPRBw8KCIx-Fww8JBQKpIGIdyhQSIhFwpyva1Q5EgBblZaYtY4+oCnatAAKVVoPQABAAVTnOkgBgCyXrAij5eLYvqxNQAwkROIzOoZTHcrKrbErnt4gtrwuEXIEgvkocEkiaEJ5It4UpF3L4K0YDe5YQ6neiVn6au7+Y1o4IAEpgQboWBgAMAGTUsHGk0E5zmHNEYf7SfWHpHhKEE6nM-ni6lMrlmAV2aVKps6oQeXcTkE4TyPiyeUC7i+dZ-RkEP4DQNK09TCHtQz7V1eVxLZBV2QREzWQMAFVyAgeQ4GXVpYCpBQNzRbkB13YcCSFRDiNQ9DMNgRULFze8C1NFxvCbcI-GCTjPG+TwG08OtvHcACnC+N4-DyFiRIgzcoJ5Qc4zg0ckP9TAoADNCMIUWBVxkZBFDo5UGMeJiEECXjBCcJxYSyMyy0bdw614rUbU+Sy3x-b9gmkwiXTkkj4zIhDlJqKjNLgHTxH09wzFvIy1RMsz3ks6zy08OzBLrKJIgtWFOxEyyIicbyuV84ihwC+CfUo1T1OorSKLgAhcJ6DSaOwqZpVmeZIKIndysUg8KJ3UKaIasRmtU1qtPPC4bGvGL6IeeLQGed9gg+CIiyyriRMctLtVyo1fkK+0HUwIgIDgOxe16t0FM9A8cyW-MVsQUgvHeTjyw7X4jEEowYniRA321UJEQbUJOICTxiq3aD5Ngh7yIWPNpFkTCICevMH3enUPmCb6oUCP6hMB4Eu2y0IhLSMzPjeMFYdksr7v3cjiUOMVyUpdAscY17H2SSInCEm03l46HAj-LIPDCL4W28biuwJxnbpgvdAqq4aapDGSbEjaNeeM-mkgAlsOzfDI0jCFw6wJgDn2F0sjTeWnwhV0q+pZjXD0nMBp1nBdcFUeBYueh8-hfR3IlLH8CeyQEgcfEHAnLPI328ezAjLd2MT8-qkYQ1N03JSBDeWhxTThdaIiNUEfxcVwYT-TwXyMSERLl3whK84pHR6j27sR1mguqtSpqu0PsYSv6LOJ7jslyxsycSYmZf+NLfhbkIc+3Qf1cqoRgrEGrx+0-hxDLl6K9M3JZ5dhfoQz23uNfIIha8DO0s8Fwd-h-yBvIkfEa9VfSNQmlAU+l8HxZGyjqYmOp8jWnyI5QSOVXKsSyNkdwv885ewPkNZCJ86rhSLhmBQmNJ582vtHbKoIWxdnNr4SymVo4HU+G+SI38-qRCKEUIAA */
-  createMachine<Context>(
+export const buildCryptoStateMachine = (
+  {
+    lockService,
+    riskService,
+  }: {
+    lockService: WalletLockService;
+    riskService: WalletRiskService;
+  },
+  { receivingWalletId, sendingWalletId }: Context["init"]
+) => {
+  /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC0ADqkbnLKeuZUQG7oA2pAtngBYGZgAdGiywChEgElM4gumSQAxG2oBrAIIBHAK4FUkANoAGALqJQ5ImImZzIAB6IAHACZBARgCsAZiN+jTgDsACxO3gBsAJwANCAAnojeIYIR4Z5GwZEuwZ7u7oEAvgWxIth4NhRUNLB0DEysHNy4fAKCAGZgyM38UADq7GydACLy6IoQJEL8zESqQqU4+MRkTNW1jFQNXLz8Qh1dLX0Dw6MI09Tyy8Ym13aW1st2jgjBRp6CweGBWcGB30HeWIJBAuFzvbwucKfSKRYJeJyeT5FEoYMpLEiVai0egbFjsbbdVr7QlHNiDZAjZBjMCoKioQTkNjyNpEVCcYSoxYVVbYuqbfFNFp7Tok-pkk5Us6YGa4S4ka63JAge6yEhPRBw8KCIx-Fww8JBQKpIGIdyhQSIhFwpyva1Q5EgBblZaYtY4+oCnatAAKVVoPQABAAVTnOkgBgCyXrAij5eLYvqxNQAwkROIzOoZTHcrKrbErnt4gtrwuEXIEgvkocEkiaEJ5It4UpF3L4K0YDe5YQ6neiVn6au7+Y1o4IAEpgQboWBgAMAGTUsHGk0E5zmHNEYf7SfWHpHhKEE6nM-ni6lMrlmAV2aVKps6oQeXcTkE4TyPiyeUC7i+dZ-RkEP4DQNK09TCHtQz7V1eVxLZBV2QREzWQMAFVyAgeQ4GXVpYCpBQNzRbkB13YcCSFRDiNQ9DMNgRULFze8C1NFxvCbcI-GCTjPG+TwG08OtvHcACnC+N4-DyFiRIgzcoJ5Qc4zg0ckP9TAoADNCMIUWBVxkZBFDo5UGMeJiEECXjBCcJxYSyMyy0bdw614rUbU+Sy3x-b9gmkwiXTkkj4zIhDlJqKjNLgHTxH09wzFvIy1RMsz3ks6zy08OzBLrKJIgtWFOxEyyIicbyuV84ihwC+CfUo1T1OorSKLgAhcJ6DSaOwqZpVmeZIKIndysUg8KJ3UKaIasRmtU1qtPPC4bGvGL6IeeLQGed9gg+CIiyyriRMctLtVyo1fkK+0HUwIgIDgOxe16t0FM9A8cyW-MVsQUgvHeTjyw7X4jEEowYniRA321UJuLCSF2zNTxiq3aD5Ngh7yIWPNpFkTCICevMH3enUPmCb6oUCP6hMB4Eu2y0IhLSMzPjeMFYdksr7v3cjiUOMVyUpdAscY17H2SSInCEm03l4gJuL-LIPDCL4W28biuwJxnbpgvdAqq4aapDGSbEjaNeeM-mkgAlsOzfDI0ghusCYA59hdLI03lp8IVdKvqWY1w9JzAadZwXXBVHgWLnofP4XwdyJSx-AnskBIHHxBwJyzyN9vHswIyzdjE-P6pGENTdNyUgQ3locU04XWiIjVBH8XFcGE-08F8jEhES5d8ISvOKR0evdu7EdZoLqrUqarpD7GEr+izie47JcsbMnEmJmWnCMZ9W4bSHs+3Af1cqoRgrEGqx+0-hxFLl7y9M3IZ+d+foXTm3uNfIIha8dO0s8Fwd-h-yBvIkfEa9VfSNQmlAU+l8HxZGyjqYmOp8jWnyI5QSOVXKsSyNkdwv9c6ewPkNZCJ86rhULhmBQmMJ582vlHbKoIWxdnNr4SymUo4HU+G+SI38-qRCKEUIAA */
+  return createMachine<Context>(
     {
       id: "transaction-process-approval-machine",
       predictableActionArguments: true,
 
       context: {
-        init: { sendingWalletId: "a", receivingWalletId: "b" },
+        init: { sendingWalletId, receivingWalletId },
         locks: [],
       },
 
@@ -204,26 +182,19 @@ export const stateMachineV3 =
       },
       services: {
         persistUpdates: (ctx) => {
-          console.warn("saving...", ctx.result!.updates);
+          console.warn();
+          console.warn();
+          console.warn();
+          console.warn("!!!saving...", ctx.result!.updates);
           return Promise.resolve();
         },
-        fecthWallets: (_ctx): Promise<WalletPair> =>
+        fecthWallets: async (ctx): Promise<WalletPair> =>
           Promise.resolve({
-            sender: {
-              address: "a",
-              isInternal: true,
-              isBlocked: false,
-              riskScore: 330,
-            },
-            receiver: {
-              address: "b",
-              isInternal: false,
-              isBlocked: true,
-              riskScore: 5,
-            },
+            sender: await riskService.fecthWallet(ctx.init.sendingWalletId),
+            receiver: await riskService.fecthWallet(ctx.init.receivingWalletId),
           }),
 
-        releaseLocks: (_ctx) => Promise.resolve(),
+        releaseLocks: (ctx) => lockService.releaseLocks(ctx.locks),
         lockAquireMachine:
           /** @xstate-layout N4IgpgJg5mDOIC5QBsD2BjA1gWgLYEN0ALASwDswA6AOVQAIAZDTAYglQsvIDdVMq0WPIVKdajZgh4Z8AFxIcA2gAYAuitWJQAB1SwS8jlpAAPRAEYAnAFZKANgDMDywHY7dy+et3zADl8ANCAAnoi+ypSuLlYuDlZ+ygBMAL7JQYI4BMTkVOJMWCxgAE5FqEWU2shyAGZluJQZwtli9PmYUmS86HIKZBoaxrr6hmTGZggALA6JlMoTvt7Klg5J5sp2LkGhCNYOlC7WNrF+E34ulqnpzE2iVADq+AZ0AEpgskXBEgUmsLJyVPhqrJigAKazKZQAShYjSyt0oDyer3enzaAyQICGBl6Y0QE2s5kiynODkcuwm0XMW0Q2HMK0ovgcvhs6ySrnxDlSaRAZFQEDgxlhIhygz02KMGPG5gp9icrncnm8fkCIRpiT8lCczImdmsvkSiT1hsuICFzVyrWYouGOMlFksvn2iUsHh1E0S7h8iWpCGwLkd7ji5hcHssSScnO5ZvhbToAEEAI4AVxIRUg1vFoztk0SE3svjpsRZLmJ1msPq8edczIJbgmEyWwZN0ZyCMeshebw+X0wGZGuMm80oDedDrWTPWm1VvrLlHMjjW1kSC18Pl8LgmXOSQA */
           createMachine<{
@@ -265,7 +236,7 @@ export const stateMachineV3 =
                 })),
               },
               services: {
-                aquireLock: () => Promise.resolve(["lockA"]),
+                aquireLock: (ctx) => lockService.aquireLocks(ctx.wallets),
               },
             }
           ),
@@ -470,3 +441,4 @@ export const stateMachineV3 =
       },
     }
   );
+};

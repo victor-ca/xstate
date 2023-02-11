@@ -1,9 +1,15 @@
-import { Transaction, Wallet } from "./model";
+import { Wallet } from "./model";
 
-export type TransactionProcessor = {
-  processTransaction(transaction: Transaction): Promise<unknown>;
+export type WalletLockService = {
+  releaseLocks(locks: string[]): Promise<unknown>;
+  aquireLocks(wallets: string[]): Promise<string[]>;
 };
 
-export type ScoringService = {
-  getScoredWallet(walletId: string): Promise<Wallet>;
+export type WalletRiskService = {
+  fecthWallet: (walletId: string) => Promise<Wallet>;
+  updateWallet: (
+    walletId: string,
+    newScore: number,
+    block?: boolean
+  ) => Promise<unknown>;
 };

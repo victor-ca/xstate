@@ -1,27 +1,50 @@
-export interface Wallet {
+export type Wallet = {
+  isInternal: boolean;
+  isBlocked: boolean;
   address: string;
   riskScore: number;
-  blocked: boolean;
-  isExternal: boolean;
-}
-
-export interface Transaction {
-  sender: string;
-  receiver: string;
-  amount: number;
-}
-
-type WithTransaction = { transaction: Transaction };
-export type TransactionWallets = { receiver: Wallet; sender: Wallet };
-type Context<T extends string> = {
-  state: T;
 };
 
-export type CryptoTransactionIntentOnly = Context<"initial"> & WithTransaction;
-export type CryptoTransactionWalletContext = Context<"resolved"> &
-  WithTransaction &
-  TransactionWallets;
+export type Transaction = {
+  sendingWalletId: string;
+  receivingWalletId: string;
+};
 
-export type CryptoTransactionContext =
-  | CryptoTransactionIntentOnly
-  | CryptoTransactionWalletContext;
+export type Context = {
+  init: { sendingWalletId: string; receivingWalletId: string };
+  locks: string[];
+  result?: ApprovalResult;
+  sender?: Wallet;
+  receiver?: Wallet;
+};
+
+export type WalletPair = Required<Pick<Context, "sender" | "receiver">>;
+
+export type LockMachineContext = {
+  walletIds: string[];
+  internalWalletLockIds: string[];
+};
+
+export type WalletUpdate = {
+  address: string;
+  newScore: number;
+  doBlock: boolean;
+};
+export type ApprovalState = "unknown" | "approved" | "rejected";
+
+export type ApprovalResult = {
+  updates: WalletUpdate[];
+  approval: "unknown" | "approved" | "rejected";
+};
+
+export type ApprovalComputing = {
+  postApprovalScores: {
+    doBlockSender: boolean;
+    doBlockReceiver: boolean;
+    senderScore: number;
+    receiverScore: number;
+  };
+};
+
+export type ApprovalMachineContext = { approval: ApprovalState } & WalletPair &
+  ApprovalComputing;
