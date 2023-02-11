@@ -1,15 +1,15 @@
 import { interpret } from "xstate";
 import { ApprovalState, Transaction } from "../model/model";
-import { WalletLockService, WalletRiskService } from "../model/services";
+import { LockService, RiskService } from "../model/services";
 import { buildCryptoStateMachine } from "./state-machine";
 
-export type TransactionProcessor = {
+export type CryptoTransactionApprovalProcessor = {
   processTransaction: (transaction: Transaction) => Promise<ApprovalState>;
 };
 export const createXStateTransactionProcessor = (
-  riskService: WalletRiskService,
-  lockService: WalletLockService
-): TransactionProcessor => {
+  riskService: RiskService,
+  lockService: LockService
+): CryptoTransactionApprovalProcessor => {
   return {
     processTransaction: async (
       transaction: Transaction
@@ -22,13 +22,6 @@ export const createXStateTransactionProcessor = (
 
         const transactionProcessor = interpret(stateMachine);
         transactionProcessor
-          // .onTransition((state, evt) => {
-          //   console.log(
-          //     `${evt.type} >>> ${JSON.stringify(
-          //       state.value
-          //     )} | ${JSON.stringify(state.context)}` /*, state.context*/
-          //   );
-          // })
           .start()
           .onDone(() =>
             resolve(transactionProcessor.getSnapshot().context.result!.approval)

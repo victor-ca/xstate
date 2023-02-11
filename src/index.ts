@@ -1,7 +1,7 @@
-import { WalletLockService, WalletRiskService } from "./model/services";
+import { LockService, RiskService } from "./model/services";
 import { createXStateTransactionProcessor } from "./services/x-state.transation-processor";
 
-const lockService: WalletLockService = {
+const lockService: LockService = {
   aquireLocks: (args) => {
     console.warn(`requesting locks for ${args}`);
     return Promise.resolve(args.map((x) => x + "-lock"));
@@ -12,7 +12,7 @@ const lockService: WalletLockService = {
   },
 };
 
-const riskService: WalletRiskService = {
+const riskService: RiskService = {
   updateWallet: (walletId, score, doBlock = false) => {
     return Promise.resolve({ walletId, score, doBlock });
   },

@@ -1,11 +1,11 @@
 import { Wallet } from "./model";
 
-export type WalletLockService = {
+export type LockService = {
   releaseLocks(locks: string[]): Promise<unknown>;
   aquireLocks(wallets: string[]): Promise<string[]>;
 };
 
-export type WalletRiskService = {
+export type RiskService = {
   fecthWallet: (walletId: string) => Promise<Wallet>;
   updateWallet: (
     walletId: string,

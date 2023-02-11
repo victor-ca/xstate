@@ -10,7 +10,7 @@ import {
   WalletPair,
   ApprovalState,
 } from "../model/model";
-import { WalletLockService, WalletRiskService } from "../model/services";
+import { LockService, RiskService } from "../model/services";
 
 const buildPostApprovalUpdates = (
   ctx: ApprovalMachineContext
@@ -48,8 +48,8 @@ export const buildCryptoStateMachine = (
     lockService,
     riskService,
   }: {
-    lockService: WalletLockService;
-    riskService: WalletRiskService;
+    lockService: LockService;
+    riskService: RiskService;
   },
   { receivingWalletId, sendingWalletId }: Context["init"]
 ) => {
@@ -175,18 +175,19 @@ export const buildCryptoStateMachine = (
         }),
         saveLockInContext: assign({
           locks: (_context, event) => {
-            console.warn("LAK", JSON.stringify(event));
+            // console.warn("LAK", JSON.stringify(event));
             return (event as any).locks;
           },
         }),
       },
       services: {
         persistUpdates: (ctx) => {
-          console.warn();
-          console.warn();
-          console.warn();
-          console.warn("!!!saving...", ctx.result!.updates);
-          return Promise.resolve();
+          const updates = ctx.result!.updates.map(
+            ({ address, doBlock, newScore }) =>
+              riskService.updateWallet(address, newScore, doBlock)
+          );
+
+          return Promise.all(updates);
         },
         fecthWallets: async (ctx): Promise<WalletPair> =>
           Promise.resolve({
@@ -242,7 +243,7 @@ export const buildCryptoStateMachine = (
           ),
 
         processApprovalStateMachine:
-          /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC06ADhakQG7oA2pAtngBYGZgB0nBhjAMQBtAAwBdRKApFY-YpikgAHogCMANgDM3AJz79ogKy6jGgOzmzAGhABPRACY1a7uYAs+82q0AODb5aRlrmAL6htmhYOPgK5FQ09EysuBxcvJjyQsJqkkggMnKEJEqqCJo6BoYmZpY29ohGjubcjp6mGmruar5GHuGRGNh4xWSU1HSMLOycPAAKNLhwcphQAAQAkpjIYKiYjGsAKkMxo4IQJDywyOg73FHDsSTxE0nTqbPcC0RLsCvrWx2ewOx2iIwUYjy0lk8hK+TKLgCem8Wi0GkcaPcogxtgcCCarlEvVEIR6PU8YQiIAepzi40SUxSaXmi2WnAB212+wYRxO4JI3Gu6FQyBEEiUhVhinhjTUuj0umM7mVunMul8vlxjS07m4XQszXMGI0RgG1L5TzGCUmyRm6W+v3+m05wJ5oMeo0FNxFIlyEpho1Ksvl1WVFPVmoaCE68vcjlE5KNjg0ytNVJp-Ktr0ZdpZPzZqzWAFFlEDubywZbzpcvbceBnLS8GbaPvbWX92cXS1yQRbRpD-UUFEHyhijG5dAFTFpHEZgu4tFqEM5RAqvPH-E13EZ3GaG6Mmzb3syvu2nSWy73K56hT6B-lJYGZdHsXoAlY1PH47pP0u1JZuHaVVVX-DV3G0Pc+zpa03iZT4HQLdYLx7N0oIFW9RRyKECgDYdnw0V9J18D8v1EH9HCXZNHDccxUV0PwsX-MxwipTAiAgOAlH3aDsxbZlBylEdSF8eUNEnDQCPVUxHB-NQl1INpuFEZTlPRHwFxkgJIOvHjm2PT4+AEBgBKfUAylIbpuDEiTJJEppZL-WjuA1RxkzjKwjSCXd0zQrM9Lgtt8w7QtARQisPTw6EhzhMzEB1ENFTnLRFQxNRRHccwlzjVd9SNEkiVECTaO0iLnnpI8ArzR1O1C11wtpdDvWQEzIpUOLVQVYxghSrQ0oypdgl8ZyfD8ejP3U3QSoavyKtzU8gqdWry3dabuAAQRgsAWpitqEGI6jHGI7pzH8E1Z3cAbRBaFMLDjOUZ18dxiKmzND1guaEOCjlL1QnSBQAJTAAArMB8G26VYr2o1WiO0CJKaHcl06ccbu8I0TSCXw1Bextyve1sqsQrsfvqzNwZHLRCuckxSWMSmTV0JGdCA3RnDRixmJ8v6Zvxk9PvPbs6pWzNaxFcnny86n6O8OnCpMP8JMAgwTQXIx0v-HGDzxnMCfm6rC2QoXfPWzaIHFyHJx0bxiJs0w7b-NW130bpiKMOUmk13TZt1-nO0N5bjcBkH8Egc3dsttwenMW2akZqNZyGqoxNnO3Dq0T2ypgnWTwAYSIZgKAYMAdjNh9cJ2hFKcJdKGY8xU5KjcDrt6ZxDpcAkMpY0IgA */
+          /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC06ADhakQG7oA2pAtngBYGZgB0nBhjAMQBtAAwBdRKApFY-YpikgAHogCMANgDM3AJz79ogKy6jGgOzmzAGhABPRACY1a7uYAs+82q0AODb5aRlrmAL6htmhYOPgK5FQ09EysuBxcvJjyQsJqkkggMnKEJEqqCJo6BoYmZpY29ohGjubcjp6mGmruar5GHuGRGNh4xWSU1HSMLOycPAAKNLhwcphQAAQAkpjIYKiYjGsAKkMxo4IQJDywyOg73FHDsSTxE0nTqbPcC0RLsCvrWx2ewOx2iIwUYjy0lk8hK+TKLgCem8Wi0GkcaPcogxtgcCCarlEvVEIR6PU8YQiIAepzi40SUxSaXmi2WnAB212+wYRxO4JI3Gu6FQyBEEiUhVhinhjTUuj0umM7mVunMul8vlxjS07m4XQszXMGI0RgG1L5TzGCUmyRm6W+v3+m05wJ5oMeo0FNxFIlyEpho1Ksvl1WVFPVmoaCE68vcjlE5KNjg0ytNVJp-Ktr0ZdpZPzZqzWAFFlEDubywZbzpcvbceBnLS8GbaPvbWX92cXS1yQRbRpD-UUFEHyhijG5dAFTFpHEZgu4tFqEM5RAqvPH-E13EZ3GaG6Mmzb3syvu2nSWy73K56hT6B-lJYGZdHsXoAlY1PH47pP0u1JZuHaVVVX-DV3G0Pc+zpa03iZT4HQLdYLx7N0oIFW9RRyKECgDYdnw0V9J18D8v1EH9HCXZNHDccxUV0PwsX-MxwipTAiAgOAlH3aDsxbZlBylEdSF8eUNEnDQCPVUxHB-NQl1INpuFEZTlNVTpzF8ZwNUg68eObY9Pj4AQGAEp9QDKUhum4MSJMkkSmlkv9aO4DVHGTOMrCNIJd3TNCs30uC23zDtC0BFCKw9PDoSHOFzMQHUQ0VOctEVDE1FEdxzCXONV31cwLDMcDmkcHTIueekj0CvNHU7MLXQi2l0O9ZBTKilR4tVBVjGCVKtHSzKl2CXwXJ8Px6M-HxPFKxr-Mq3NT2Cp06vLd0Zu4ABBGCwFa2L2oQYjqMcYjug0iSmh3QbRBaFMLDjOUZ18dxiOmzND1g+aEJCjlL1Q3SBQAJTAAArMB8B26U4v2o1WmO0Cztndwl06ccbu8I0TSCXw1BexsKve1tqsQrsfoazNwZHLRRA0FyTFJYxKZNXQkZ0IDdDcz9-H8SlBj+2b8ZPT7z27erVszWsRXJ59vJp+jvHpqmTD-CTAIME0FyMDL-xxg88ZzAmFpqwtkJFvyNq2iBJchycdG8YjbNMB2-w1td9G6YijDlJptb0ub9cFztjZW03AZB-BIEtvbrbcHp8okh3FajWdhqqMTZwdo6tG98qYL1k8AGEiGYCgGDAHYLYfXDdoRSnCQyxnPMVOSo3A67emcI6XAJTKWNCIA */
           createMachine<ApprovalMachineContext>(
             {
               predictableActionArguments: true,
@@ -410,7 +411,7 @@ export const buildCryptoStateMachine = (
               },
               guards: {
                 isExternal: (ctx) => {
-                  console.warn(ctx);
+                  // console.warn(ctx);
                   return !ctx.sender.isInternal || !ctx.receiver.isInternal;
                 },
                 "internal score < 100 and no wallet is blocked": (ctx) => {
