@@ -27,36 +27,55 @@ type WalletUpdate = {
   doBlock: boolean;
 };
 type ApprovalState = "unknown" | "approved" | "rejected";
+
 type ApprovalResult = {
   updates: WalletUpdate[];
   approval: "unknown" | "approved" | "rejected";
 };
-type ApprovalContextBase<Mode = "internal" | "internal-vs-external"> = {
-  mode: Mode;
+type ApprovalComputing = {
+  postApprovalScores: {
+    doBlockSender: boolean;
+    doBlockReceiver: boolean;
+    senderScore: number;
+    receiverScore: number;
+  };
 };
-type InternalApprovalContext = ApprovalContextBase<"internal"> & {
-  wallets: [Wallet, Wallet];
-};
-type ExternalApprovalContext = ApprovalContextBase<"internal-vs-external"> & {
-  internal: Wallet;
-  external: Wallet;
-};
-type ApprovalContext = InternalApprovalContext | ExternalApprovalContext;
-type ApprovalMachineContext = ApprovalResult & ApprovalContext;
+type ApprovalMachineContext = { approval: ApprovalState } & WalletPair &
+  ApprovalComputing;
 
-const resolveTransactionApprovalContext = (ctx: Context): ApprovalContext => {
-  const wallets = [ctx.sender, ctx.receiver] as [Wallet, Wallet];
-  const externalWallet = wallets.find((x) => !x.isInternal);
-  return !!externalWallet
-    ? {
-        mode: "internal-vs-external",
-        external: externalWallet,
-        internal: wallets.find((x) => x.isInternal)!,
-      }
-    : { mode: "internal", wallets };
+const buildPostApprovalUpdates = (
+  ctx: ApprovalMachineContext
+): WalletUpdate[] => {
+  const buildUpdate = (
+    w: Wallet,
+    { computedScore, doBlock }: { computedScore: number; doBlock: boolean }
+  ): WalletUpdate | undefined => {
+    const scoreChanged = w.riskScore !== computedScore;
+    const isInternal = w.isInternal;
+    const stateChangedToBlocked = !w.isBlocked && doBlock;
+
+    const shouldUpdate = isInternal && (scoreChanged || stateChangedToBlocked);
+
+    if (!shouldUpdate) {
+      return undefined;
+    }
+
+    return { address: w.address, doBlock, newScore: computedScore };
+  };
+  return [
+    buildUpdate(ctx.sender, {
+      computedScore: ctx.postApprovalScores.senderScore,
+      doBlock: ctx.postApprovalScores.doBlockSender,
+    }),
+    buildUpdate(ctx.receiver, {
+      computedScore: ctx.postApprovalScores.receiverScore,
+      doBlock: ctx.postApprovalScores.doBlockReceiver,
+    }),
+  ].filter(Boolean) as WalletUpdate[];
 };
+
 export const stateMachineV3 =
-  /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC0ADqkbnLKeuZUQG7oA2pAtngBYGZgAdGiywChEgElM4gumSQAxG2oBrAIIBHAK4FUkANoAGALqJQ5ImImZzIAB6IATAE4jggCwBWAMwBGDw8XIL8ANlDfABoQAE9EPydQwSMnH28nRJc-AA5QgHYAXwLokWw8GwoqGlg6BiZWDm5cPgFBADMwZGb+KAB1djZOgBF5dEUIEiF+ZiJVIVKcfGIyJmraxioGrl5+IQ6ulr6B4dGEaep5ZeMTa7tLa2W7RwRQ7OzPV+y-PNS-FycvB5onEEAE-II8nk0l4YU4PGk8i4iiUMGUliRKtRaPQNix2Ntuq19oSjmxBsgRsgxmBUFRUIJyGx5G0iKhOMJUYsKqtsXVNvimi09p0Sf0yScqWdMDNcJcSNdbkgQPdZCQnohPh83t9fv9AcDENknIIvEYzUZ-B48n4bS5CsUQAtystMWscfUBTtWgAFKq0HoAAgAKpznSQAwBZL1gRR8vFsX1YmoAYSInEZnUMpjuVlVtiVzz8Rgigic1p8XmyWTyHlcoQNCB8oXBTbyoRcrzcgMroWRjtD6JWfpq7v5jWjggASmBBuhYGAAwAZNSwcaTQTnOYc0RhodJ9Ye8eEoTT2fzpcrqUyuWYBXZpUqmzq0FeP6CKtGRFZIww4INgIuJ4YSvD+HjfE2Ph9k6g6uryuJbIKuyCImayBgAquQEDyHAa6tLAVIKNuaLcsOB5jgSQrIaR6GYdhsCKhYuZPgW8QVu8uQ-O23z5B22QNqkgFwi4LjZG2Ik5LkThQQOJH7qO8YUUhKH+pgUABhhWEKLAG4yMgigMcqTGPCxoIJF4gihB4oQVv4doZCkDaWXkELfDkIl5OawTSTuME8iOcYIROyk1DRmlwDp4j6X4ZgPkZaomX4-jGp+2RNpZLg+C4jmiSaQS1m44QuKa2TecRLp+WRCmIT61GqeptFaVRcAEPhPQaXRuFTNKszzDJ5WkfJgXHlR+6hXRTViK1qntVpV4XDYd4xYxDzxaAhamkk1mmt8MIVvCfGxBqNbJK+eRVn8RZeKEUl9pgRAQHAdjQbJboBZ6x45it+ZrYgpD1odCCkB4gjCaDPgVqERipT4omlVy-VyW9R6UQsebSLI2EQJ9ebPrW-4AhCppGH8olcUYgRw7usH+fB72UcShxiuSlLoNjzE-QgHhfCaZ05D+PyfsTXj4+ZeREyTYlFmBlO+QNSOKTVo11SGPk2JG0Zs8ZHO5D4pbuZZn52uTB0ggC4KJd86QZdkpo3SiqsI69tPI0hp5gHOC7LrgqjwLFX3PolTjgm2aQ5D84NfECAOB8kHg-n4prhwLdv9g7GIVYNdNIam6bkpAmurQ48TWu4ALEx2YFWlZfj-lagjAdZUKQ3C1oyy9cGHgrQjBWIdUzY9fs4wln7A5Z1n5GkMMJ3kDZBM51o-HCrjwv49r22V6dy87XcjahfcNeF-DiAX31F6ZGQWVZraT18XgzwDlbmUHAvCWWtZQm3jsd+R1Xd7Van920r6ZqU0oCAJPgHRI4IjQkwiB2BOXMGxiySAnf4qRciVgAp-TeiNt6-13ipABB9tI5wzAoLGg92Zn0SsWZI10oQ+DFpCa0WUH421LDqIwr8axlkgkUAoQA */
+  /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC0ADqkbnLKeuZUQG7oA2pAtngBYGZgAdGiywChEgElM4gumSQAxG2oBrAIIBHAK4FUkANoAGALqJQ5ImImZzIAB6IAHACZBARgCsAZiN+jTgDsACxO3gBsAJwANCAAnojeIYIR4Z5GwZEuwZ7u7oEAvgWxIth4NhRUNLB0DEysHNy4fAKCAGZgyM38UADq7GydACLy6IoQJEL8zESqQqU4+MRkTNW1jFQNXLz8Qh1dLX0Dw6MI09Tyy8Ym13aW1st2jgjBRp6CweGBWcGB30HeWIJBAuFzvbwucKfSKRYJeJyeT5FEoYMpLEiVai0egbFjsbbdVr7QlHNiDZAjZBjMCoKioQTkNjyNpEVCcYSoxYVVbYuqbfFNFp7Tok-pkk5Us6YGa4S4ka63JAge6yEhPRBw8KCIx-Fww8JBQKpIGIdyhQSIhFwpyva1Q5EgBblZaYtY4+oCnatAAKVVoPQABAAVTnOkgBgCyXrAij5eLYvqxNQAwkROIzOoZTHcrKrbErnt4gtrwuEXIEgvkocEkiaEJ5It4UpF3L4K0YDe5YQ6neiVn6au7+Y1o4IAEpgQboWBgAMAGTUsHGk0E5zmHNEYf7SfWHpHhKEE6nM-ni6lMrlmAV2aVKps6oQeXcTkE4TyPiyeUC7i+dZ-RkEP4DQNK09TCHtQz7V1eVxLZBV2QREzWQMAFVyAgeQ4GXVpYCpBQNzRbkB13YcCSFRDiNQ9DMNgRULFze8C1NFxvCbcI-GCTjPG+TwG08OtvHcACnC+N4-DyFiRIgzcoJ5Qc4zg0ckP9TAoADNCMIUWBVxkZBFDo5UGMeJiEECXjBCcJxYSyMyy0bdw614rUbU+Sy3x-b9gmkwiXTkkj4zIhDlJqKjNLgHTxH09wzFvIy1RMsz3ks6zy08OzBLrKJIgtWFOxEyyIicbyuV84ihwC+CfUo1T1OorSKLgAhcJ6DSaOwqZpVmeZIKIndysUg8KJ3UKaIasRmtU1qtPPC4bGvGL6IeeLQGed9gg+CIiyyriRMctLtVyo1fkK+0HUwIgIDgOxe16t0FM9A8cyW-MVsQUgvHeTjyw7X4jEEowYniRA321UJEQbUJOICTxiq3aD5Ngh7yIWPNpFkTCICevMH3enUPmCb6oUCP6hMB4Eu2y0IhLSMzPjeMFYdksr7v3cjiUOMVyUpdAscY17H2SSInCEm03l46HAj-LIPDCL4W28biuwJxnbpgvdAqq4aapDGSbEjaNeeM-mkgAlsOzfDI0jCFw6wJgDn2F0sjTeWnwhV0q+pZjXD0nMBp1nBdcFUeBYueh8-hfR3IlLH8CeyQEgcfEHAnLPI328ezAjLd2MT8-qkYQ1N03JSBDeWhxTThdaIiNUEfxcVwYT-TwXyMSERLl3whK84pHR6j27sR1mguqtSpqu0PsYSv6LOJ7jslyxsycSYmZf+NLfhbkIc+3Qf1cqoRgrEGrx+0-hxDLl6K9M3JZ5dhfoQz23uNfIIha8DO0s8Fwd-h-yBvIkfEa9VfSNQmlAU+l8HxZGyjqYmOp8jWnyI5QSOVXKsSyNkdwv885ewPkNZCJ86rhSLhmBQmNJ582vtHbKoIWxdnNr4SymVo4HU+G+SI38-qRCKEUIAA */
   createMachine<Context>(
     {
       id: "transaction-process-approval-machine",
@@ -102,7 +121,10 @@ export const stateMachineV3 =
         "Processing Transaction Machine": {
           invoke: {
             src: "processApprovalStateMachine",
-            data: resolveTransactionApprovalContext,
+            data: ({ sender, receiver }) => ({
+              sender,
+              receiver,
+            }),
           },
 
           on: {
@@ -195,15 +217,15 @@ export const stateMachineV3 =
             },
             receiver: {
               address: "b",
-              isInternal: true,
-              isBlocked: false,
-              riskScore: 330,
+              isInternal: false,
+              isBlocked: true,
+              riskScore: 5,
             },
           }),
 
         releaseLocks: (_ctx) => Promise.resolve(),
         lockAquireMachine:
-          /** @xstate-layout N4IgpgJg5mDOIC5QBsD2BjA1gWgLYEN0ALASwDswA6AOVQAIAZDTAYglQsvIDdVMq0WPIVKdajZgh4Z8AFxIcA2gAYAuitWJQAB1SwS8jlpAAPRACYALADZKARnMBWZcoDsADkfvL7qwGYAGhAAT0R3O0pnF2U7P3NXO0dHAE5kgF80oMEcAmJyKnEmLBYwACdS1FLKbWQ5ADNK3Eps4TyxeiLMKTJedDkFMg0NY119QzJjMwQrWwcojy8ffyDQ6fMI5Mc-WMdza3dUyziMrOZW0SoAdXwDOgAlMFlS4Ilik1hZOSp8OtkygAoogBKFgtXIXSjXW4PJ4vTrDJAgUYGAaTCzJVyUaxOFyWdauAk+awrRB2VyWSiWLaxczmTzudx+DwZTIgMioCBwYxgkT5EZ6FFGRFTbDEkKIUWUaLSmUuVwnEA8toFDrMfljVHCxB4kkIOyWZKUTbbPzKbzJBy+dKspUQzp0ACCAEcAK4kUqQdWCiZahBHPxYhIM9zKaxRGK6uwxI2uMPJcwYhPJPzeBW2-KQm6ye6PZ6vTBe8Zov1+APWIMM0Phuy69aOSh+awYg5k5RMvzWjJAA */
+          /** @xstate-layout N4IgpgJg5mDOIC5QBsD2BjA1gWgLYEN0ALASwDswA6AOVQAIAZDTAYglQsvIDdVMq0WPIVKdajZgh4Z8AFxIcA2gAYAuitWJQAB1SwS8jlpAAPRAEYAnAFZKANgDMDywHY7dy+et3zADl8ANCAAnoi+ypSuLlYuDlZ+ygBMAL7JQYI4BMTkVOJMWCxgAE5FqEWU2shyAGZluJQZwtli9PmYUmS86HIKZBoaxrr6hmTGZggALA6JlMoTvt7Klg5J5sp2LkGhCNYOlC7WNrF+E34ulqnpzE2iVADq+AZ0AEpgskXBEgUmsLJyVPhqrJigAKazKZQAShYjSyt0oDyer3enzaAyQICGBl6Y0QE2s5kiynODkcuwm0XMW0Q2HMK0ovgcvhs6ySrnxDlSaRAZFQEDgxlhIhygz02KMGPG5gp9icrncnm8fkCIRpiT8lCczImdmsvkSiT1hsuICFzVyrWYouGOMlFksvn2iUsHh1E0S7h8iWpCGwLkd7ji5hcHssSScnO5ZvhbToAEEAI4AVxIRUg1vFoztk0SE3svjpsRZLmJ1msPq8edczIJbgmEyWwZN0ZyCMeshebw+X0wGZGuMm80oDedDrWTPWm1VvrLlHMjjW1kSC18Pl8LgmXOSQA */
           createMachine<{
             wallets: string[];
             internalWalletLockIds: string[];
@@ -249,7 +271,7 @@ export const stateMachineV3 =
           ),
 
         processApprovalStateMachine:
-          /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC06ADhakQG7oA2pAtngBYGZgB0nBhjAMQBtAAwBdRKApFY-YpikgAHogAsAZm4B2AGwaArAEYAHHrVqATActG1AGhABPRKQOHuRg6NHaTlyzMATiNLAF8wxzQsHHwFcioaeiZWXA4uXkx5IWEjSSQQGTlCEiVVBDUjblFdUQ0gjRMvet09A0cXBFJNbWrtY101INETDQ0AiKiMbDwSskpqOkYWdk4eAAUaXDg5TCgAAgBJTGQwVExGfYAVadi5wQgSHlhkdFPuaJm4kgTF5JW0mtuJsiNtYLsDsdTudLjcYrMFGJ8tJZPJSgVykZRLZuGpdJZ8S1hvp2s5EKFRLjdCYTMZNCY6hojBpJiBPnd4gskstUukNlsdpxISczhcGNdbgiSNwXuhUMgRBIlEU0YoMYhDJTTIZdPjREF+hoHGSEFjLDptCFdS0CWpWeypfNEksUqsMiCwRCjiKYeK4V85jLXvKRHllai5mUNRpdNxvEZBpZNVivB1EAFzUEDAYgvi8TG6hZ7ZLvk6-jy3fzQYK9vsAKLKaFiiXw0sPJ5Bt48B2l37c12A90C8FC+uN0WwktzJHh4oKKOm7G9NQjBl43PMglprpYrX1Ox+JnaAkmILF1tzPsugF84HDr0NpuTi8KTshmcFFWR9UIeombh6noVpGl4Cbbt0IwAd4IyVPGp4GNo54Bpyzr-LyQIejWByPhOfpTq+srvmGn4RvOP4xlodS1Nip6iDmqYmqQlgNLiohDKY3j9Cu4SspgRAQHASg9peXLXuhXCzqqC6kKEsZJoM2h1EEti6EEaikp0pCqVoXg+EEtK2GofgGEhHI-KJaGVpk2QMJJ36gOUpB+Nw8lGUpKlqRprgIbGaijPUzEEhoojMqZjpXpZg5Vp6o5QrhLbIeiKJzklKjpjScYhYmyYhV5XRGS5lgjNmrTqT4uVhb2FkVlFd7ViOtZxb6CVmZgb7IHZZEORqBXatmJiqWx2jGp0K4uZaoEaNoCYWANJmRGy+HmahNW3phDXCk+eEvtKACCqFgJ1qXlCS1SqXowT6LopjbjN3AGkyJhGdoTJGFxlUiStA5rfesU+s2-qtdwABKYAAFZgPgR1qt1CCDFUWVZUZWYGKM26BFoDK1HYBKo-pLILcJKHlt9GG-bWOHNYDjrQwugRqHGurFXRhiydo4G1AYUF6Qe7hjLoH3E-2N5k-VD7jlTS1tYRHUkSlMNpb+4yM7UtIs8YBLs4xxj-rpq65ghwxGILy0kyLQ5i6OlMA1L3D7X8kC0z+1Jc7Yb3HvUMHDeB4xBNUalmjYPgvTxUw7WWwvidFWFjltLWOiD4OQ6cEBO7Dg2eAY6lGEYanWLSRjgUV-76oYymmMyZiWIhhNSxFq1AgAwkQzAUAwYAp2nitmgzWdTf0OZJkalhF5j+jqQNQQGrnucRBEQA */
+          /** @xstate-layout N4IgpgJg5mDOIC5QBcBOBDAdrdBjZAlgPaYC06ADhakQG7oA2pAtngBYGZgB0nBhjAMQBtAAwBdRKApFY-YpikgAHogCMANgDM3AJz79ogKy6jGgOzmzAGhABPRACY1a7uYAs+82q0AODb5aRlrmAL6htmhYOPgK5FQ09EysuBxcvJjyQsJqkkggMnKEJEqqCJo6BoYmZpY29ohGjubcjp6mGmruar5GHuGRGNh4xWSU1HSMLOycPAAKNLhwcphQAAQAkpjIYKiYjGsAKkMxo4IQJDywyOg73FHDsSTxE0nTqbPcC0RLsCvrWx2ewOx2iIwUYjy0lk8hK+TKLgCem8Wi0GkcaPcogxtgcCCarlEvVEIR6PU8YQiIAepzi40SUxSaXmi2WnAB212+wYRxO4JI3Gu6FQyBEEiUhVhinhjTUuj0umM7mVunMul8vlxjS07m4XQszXMGI0RgG1L5TzGCUmyRm6W+v3+m05wJ5oMeo0FNxFIlyEpho1Ksvl1WVFPVmoaCE68vcjlE5KNjg0ytNVJp-Ktr0ZdpZPzZqzWAFFlEDubywZbzpcvbceBnLS8GbaPvbWX92cXS1yQRbRpD-UUFEHyhijG5dAFTFpHEZgu4tFqEM5RAqvPH-E13EZ3GaG6Mmzb3syvu2nSWy73K56hT6B-lJYGZdHsXoAlY1PH47pP0u1JZuHaVVVX-DV3G0Pc+zpa03iZT4HQLdYLx7N0oIFW9RRyKECgDYdnw0V9J18D8v1EH9HCXZNHDccxUV0PwsX-MxwipTAiAgOAlH3aDsxbZlBylEdSF8eUNEnDQCPVUxHB-NQl1INpuFEZTlPRHwFxkgJIOvHjm2PT4+AEBgBKfUAylIbpuDEiTJJEppZL-WjuA1RxkzjKwjSCXd0zQrM9Lgtt8w7QtARQisPTw6EhzhMzEB1ENFTnLRFQxNRRHccwlzjVd9SNEkiVECTaO0iLnnpI8ArzR1O1C11wtpdDvWQEzIpUOLVQVYxghSrQ0oypdgl8ZyfD8ejP3U3QSoavyKtzU8gqdWry3dabuAAQRgsAWpitqEGI6jHGI7pzH8E1Z3cAbRBaFMLDjOUZ18dxiKmzND1guaEOCjlL1QnSBQAJTAAArMB8G26VYr2o1WiO0CJKaHcl06ccbu8I0TSCXw1Bextyve1sqsQrsfvqzNwZHLRCuckxSWMSmTV0JGdCA3RnDRixmJ8v6Zvxk9PvPbs6pWzNaxFcnny86n6O8OnCpMP8JMAgwTQXIx0v-HGDzxnMCfm6rC2QoXfPWzaIHFyHJx0bxiJs0w7b-NW130bpiKMOUmk13TZt1-nO0N5bjcBkH8Egc3dsttwenMW2akZqNZyGqoxNnO3Dq0T2ypgnWTwAYSIZgKAYMAdjNh9cJ2hFKcJdKGY8xU5KjcDrt6ZxDpcAkMpY0IgA */
           createMachine<ApprovalMachineContext>(
             {
               predictableActionArguments: true,
@@ -264,6 +286,8 @@ export const stateMachineV3 =
                     },
                     "Processing Internal Transaction",
                   ],
+
+                  entry: "initalizeState",
                 },
 
                 "Processing Internal Transaction": {
@@ -309,7 +333,7 @@ export const stateMachineV3 =
                         },
                         {
                           target: "Rejected",
-                          actions: "add 15% penalty to wallet risk",
+                          actions: "add 15% penalty to internal wallet risk",
                         },
                       ],
                     },
@@ -332,29 +356,79 @@ export const stateMachineV3 =
                 Completed: {
                   type: "final",
                   exit: "emitResultToParent",
+                  entry: "processAdditionalRules",
                 },
               },
             },
             {
               actions: {
-                emitResultToParent: sendParent(({ approval, updates }) => {
+                processAdditionalRules: assign({
+                  postApprovalScores: (ctx) => {
+                    const canBlock = (w: Wallet) =>
+                      w.isInternal && !w.isBlocked;
+                    return {
+                      ...ctx.postApprovalScores,
+                      doBlockSender:
+                        canBlock(ctx.sender) &&
+                        (ctx.receiver.isBlocked ||
+                          ctx.postApprovalScores.senderScore > 600),
+
+                      doBlockReceiver:
+                        canBlock(ctx.receiver) &&
+                        ctx.postApprovalScores.receiverScore > 600,
+                    };
+                  },
+                }),
+                emitResultToParent: sendParent((ctx) => {
                   return {
                     type: "approvalProcessCompleted",
                     data: {
-                      approval,
-                      updates,
+                      approval: ctx.approval,
+                      updates: buildPostApprovalUpdates(ctx),
                     } as ApprovalResult,
                   };
                 }),
                 "Add 10% penalty to both wallets": assign({
-                  updates: (ctx): WalletUpdate[] =>
-                    (ctx as InternalApprovalContext).wallets.map(
-                      (w): WalletUpdate => ({
-                        address: w.address,
-                        doBlock: false,
-                        newScore: w.riskScore * 1.1,
-                      })
-                    ),
+                  postApprovalScores: (ctx) => ({
+                    ...ctx.postApprovalScores,
+                    receiverScore: ctx.postApprovalScores.receiverScore * 1.1,
+                    senderScore: ctx.postApprovalScores.senderScore * 1.1,
+                  }),
+                }),
+
+                "add 15% penalty to internal wallet risk": assign({
+                  postApprovalScores: (ctx) => {
+                    const penalized: keyof typeof ctx.postApprovalScores = ctx
+                      .sender.isInternal
+                      ? "senderScore"
+                      : "receiverScore";
+
+                    return {
+                      ...ctx.postApprovalScores,
+                      [penalized]: ctx.postApprovalScores[penalized] * 1.15,
+                    };
+                  },
+                }),
+                initalizeState: assign({
+                  postApprovalScores: (ctx) => ({
+                    doBlockReceiver: false,
+                    doBlockSender: false,
+                    receiverScore: ctx.receiver.riskScore,
+                    senderScore: ctx.sender.riskScore,
+                  }),
+                }),
+                appendExternalRisk: assign({
+                  postApprovalScores: (ctx) => {
+                    const sumScore =
+                      ctx.postApprovalScores.senderScore +
+                      ctx.postApprovalScores.receiverScore;
+                    const updatedWalletProp: keyof typeof ctx.postApprovalScores =
+                      ctx.sender.isInternal ? "senderScore" : "receiverScore";
+                    return {
+                      ...ctx.postApprovalScores,
+                      [updatedWalletProp]: sumScore,
+                    };
+                  },
                 }),
                 concludeApproved: assign({
                   approval: (_): ApprovalState => "approved",
@@ -366,13 +440,28 @@ export const stateMachineV3 =
               guards: {
                 isExternal: (ctx) => {
                   console.warn(ctx);
-                  return ctx.mode === "internal-vs-external";
+                  return !ctx.sender.isInternal || !ctx.receiver.isInternal;
+                },
+                "internal score < 100 and no wallet is blocked": (ctx) => {
+                  const internalWalletKey: keyof typeof ctx.postApprovalScores =
+                    ctx.sender.isInternal ? "senderScore" : "receiverScore";
+
+                  const anyBlocked =
+                    ctx.sender.isBlocked || ctx.receiver.isBlocked;
+
+                  return (
+                    ctx.postApprovalScores[internalWalletKey] < 100 &&
+                    !anyBlocked
+                  );
                 },
                 "Sum Scores < 300 and no wallet is blocked": (ctx) => {
-                  const context = ctx as InternalApprovalContext;
                   const score =
-                    context.wallets[0].riskScore + context.wallets[1].riskScore;
-                  const anyBlocked = context.wallets.find((x) => x.isBlocked);
+                    ctx.postApprovalScores.senderScore +
+                    ctx.postApprovalScores.receiverScore;
+
+                  const anyBlocked =
+                    ctx.sender.isBlocked || ctx.receiver.isBlocked;
+
                   return score < 300 && !anyBlocked;
                 },
               },
