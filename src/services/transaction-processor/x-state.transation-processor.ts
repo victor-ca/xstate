@@ -1,50 +1,29 @@
-import { createMachine, interpret } from "xstate";
+import { interpret } from "xstate";
 import { ScoringService, TransactionProcessor } from "../../model/services";
-import {
-  KnownStates,
-  transactionProcessorStates,
-} from "./transaction-processor.states";
-import { Context, Transaction } from "../../model/model";
+import { Transaction } from "../../model/model";
+import { cryptoTransactionStateMachine } from "./state-machine";
 
 export const createXStateTransactionProcessor = (
-  scoringService: ScoringService
+  _scoringService: ScoringService
 ): TransactionProcessor => {
   return {
-    processTransaction: async (transaction: Transaction): Promise<unknown> => {
-      const { sender: senderWalletId, receiver: receiverWalletId } =
-        transaction;
-      const sender = await scoringService.getScoredWallet(senderWalletId);
-      const receiver = await scoringService.getScoredWallet(receiverWalletId);
+    processTransaction: async (_transaction: Transaction): Promise<unknown> => {
+      return new Promise((resolve) => {
+        const processor = interpret(cryptoTransactionStateMachine());
+        processor
+          // .onEvent((evt) => console.warn(`>>>${evt.type}`))
 
-      const stateMachine = createMachine<Context>({
-        id: "CRYPTO_TRANSACTION",
-        initial: "idle",
-        context: {
-          sender,
-          receiver,
-          transaction,
-        },
-        states: transactionProcessorStates,
+          .onTransition((state, evt) => {
+            console.log(
+              `${evt.type} >>> ${JSON.stringify(
+                state.value
+              )}` /*, state.context*/
+            );
+          })
+          .start();
+
+        processor.onDone(resolve);
       });
-
-      const processor = interpret(stateMachine);
-      processor
-        .onTransition((state) => {
-          const stateType = state.value as KnownStates;
-          switch (stateType) {
-            case "idle":
-              // ...
-              break;
-            case "blockSender":
-              break;
-          }
-          console.log();
-        })
-        .start();
-
-      processor.send("NEW_TRANSACTION");
-
-      return Promise.resolve(transaction);
     },
   };
 };
